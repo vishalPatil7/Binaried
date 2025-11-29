@@ -1,14 +1,17 @@
 import express from "express";
 import dotenv from "dotenv";
+import fetch from "node-fetch";
 dotenv.config();
 
 const router = express.Router();
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
-// ------------------------------------------
-// 1) Interpret Query using OpenAI
-// ------------------------------------------
+/* ---------------------------------------------------
+   HELPER: Interpret Query with OpenAI
+---------------------------------------------------- */
 async function interpretQuery(prompt) {
+  console.log("INTERPRET QUERY START: ", prompt);
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -16,18 +19,13 @@ async function interpretQuery(prompt) {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "gpt-4-mini",
+      model: "gpt-4o-mini", // FINAL CORRECT MODEL
       messages: [
         {
           role: "system",
           content:
-            "You are a movie query interpreter. Convert user text into structured JSON. DO NOT hallucinate movies. ONLY return JSON in this format:\n\n" +
-            `{
-              "type": "similar | genre | top_rated | trending",
-              "movie": "string or null",
-              "genre": "string or null",
-              "limit": number
-             }`,
+            "You are a movie query interpreter. Convert user text into JSON ONLY:\n" +
+            "{ \"type\": \"similar | genre | top_rated\", \"movie\": string|null, \"genre\": string|null, \"limit\": number }",
         },
         { role: "user", content: prompt },
       ],
@@ -35,65 +33,62 @@ async function interpretQuery(prompt) {
     }),
   });
 
-  const data = await response.json();
-  return JSON.parse(data.choices[0].message.content);
-}
+  const ai = await response.json();
+  console.log("RAW AI RESPONSE:", ai);
 
-// ------------------------------------------
-// 2) TMDB helpers
-// ------------------------------------------
-async function searchMovie(title) {
-  const res = await fetch(
-    `${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}`,
-    {
-      headers: {
-        accept: "application/json",
-        Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
-      },
-    }
-  );
-
-  const data = await res.json();
-
-  if (!data.results || data.results.length === 0) {
+  let parsed;
+  try {
+    parsed = JSON.parse(ai.choices[0]?.message?.content || "{}");
+  } catch (err) {
+    console.log("AI JSON PARSE FAILED:", err);
     return null;
   }
 
+  console.log("PARSED QUERY:", parsed);
+  return parsed;
+}
+
+/* ---------------------------------------------------
+   TMDB: Safe fetch wrapper
+---------------------------------------------------- */
+async function safeFetch(url) {
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/json",
+      Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
+    },
+  });
+
+  const data = await res.json();
+  console.log("TMDB:", url, "->", data);
+
+  return data;
+}
+
+/* ---------------------------------------------------
+   Actual TMDB helpers
+---------------------------------------------------- */
+async function searchMovie(title) {
+  const data = await safeFetch(
+    `${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}`
+  );
+
+  if (!data.results || data.results.length === 0) return null;
   return data.results[0];
 }
 
-async function getSimilarMovies(movieId, limit) {
-  const res = await fetch(`${TMDB_BASE}/movie/${movieId}/similar`, {
-    headers: {
-      accept: "application/json",
-      Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
-    },
-  });
-
-  const data = await res.json();
-
-  if (!data.results) return [];
-
-  return data.results.slice(0, limit);
+async function getSimilarMovies(id, limit) {
+  const data = await safeFetch(`${TMDB_BASE}/movie/${id}/similar`);
+  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
 }
 
 async function getTopRated(limit) {
-  const res = await fetch(`${TMDB_BASE}/movie/top_rated`, {
-    headers: {
-      accept: "application/json",
-      Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
-    },
-  });
-
-  const data = await res.json();
-
-  if (!data.results) return [];
-
-  return data.results.slice(0, limit);
+  const data = await safeFetch(`${TMDB_BASE}/movie/top_rated`);
+  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
 }
 
-async function getGenreMovies(genreName, limit) {
-  const genreMap = {
+async function getGenreMovies(genre, limit) {
+  const map = {
     comedy: 35,
     action: 28,
     thriller: 53,
@@ -105,57 +100,60 @@ async function getGenreMovies(genreName, limit) {
     "sci-fi": 878,
   };
 
-  const id = genreMap[genreName.toLowerCase()];
+  const id = map[genre.toLowerCase()];
   if (!id) return [];
 
-  const res = await fetch(
-    `${TMDB_BASE}/discover/movie?with_genres=${id}&sort_by=vote_average.desc`,
-    {
-      headers: {
-        accept: "application/json",
-        Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
-      },
-    }
+  const data = await safeFetch(
+    `${TMDB_BASE}/discover/movie?with_genres=${id}&sort_by=vote_average.desc`
   );
 
-  const data = await res.json();
-
-  if (!data.results) return [];
-
-  return data.results.slice(0, limit);
+  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
 }
 
-// ------------------------------------------
-// 3) Main Route Handler
-// ------------------------------------------
+/* ---------------------------------------------------
+   MAIN ROUTE
+---------------------------------------------------- */
 router.post("/ai-movie-query", async (req, res) => {
   const { prompt } = req.body;
 
+  console.log("USER PROMPT RECEIVED:", prompt);
+
   try {
-    // Step 1: interpret
     const query = await interpretQuery(prompt);
+
+    if (!query) {
+      return res.status(400).json({ movies: [], error: "Invalid AI format" });
+    }
 
     let movies = [];
 
-    if (query.type === "similar" && query.movie) {
-      const searched = await searchMovie(query.movie);
-      if (searched) {
-        movies = await getSimilarMovies(searched.id, query.limit);
-      }
+    // SIMILAR MOVIES
+    if (query.type === "similar") {
+      if (!query.movie) return res.json({ movies: [] });
+
+      const found = await searchMovie(query.movie);
+      if (!found) return res.json({ movies: [] });
+
+      movies = await getSimilarMovies(found.id, query.limit);
     }
 
+    // TOP RATED
     if (query.type === "top_rated") {
       movies = await getTopRated(query.limit);
     }
 
-    if (query.type === "genre" && query.genre) {
+    // GENRE
+    if (query.type === "genre") {
+      if (!query.genre) return res.json({ movies: [] });
       movies = await getGenreMovies(query.genre, query.limit);
     }
 
+    console.log("FINAL MOVIES:", movies);
+
     return res.json({ movies });
   } catch (error) {
-    console.log("AI movie query error:", error);
-    return res.status(500).json({ error: "AI handler failed" });
+    console.log("SERVER ERROR:", error, error.stack);
+    return res.status(500).json({ movies: [], error: "AI handler failed" });
   }
 });
 
