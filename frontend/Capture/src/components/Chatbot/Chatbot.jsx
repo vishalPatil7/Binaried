@@ -44,7 +44,7 @@ export default function Chatbot() {
     // Send input to your backend AI endpoint
     try {
       const response = await fetch(
-        "https://binaried.onrender.com/api/ai-movie-query",
+        "https://foxmovies-backend.onrender.com/api/ai-movie-query",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

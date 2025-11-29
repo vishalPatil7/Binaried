@@ -52,8 +52,14 @@ async function searchMovie(title) {
       },
     }
   );
+
   const data = await res.json();
-  return data.results[0]; // best match
+
+  if (!data.results || data.results.length === 0) {
+    return null;
+  }
+
+  return data.results[0];
 }
 
 async function getSimilarMovies(movieId, limit) {
@@ -63,7 +69,11 @@ async function getSimilarMovies(movieId, limit) {
       Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
     },
   });
+
   const data = await res.json();
+
+  if (!data.results) return [];
+
   return data.results.slice(0, limit);
 }
 
@@ -74,7 +84,11 @@ async function getTopRated(limit) {
       Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
     },
   });
+
   const data = await res.json();
+
+  if (!data.results) return [];
+
   return data.results.slice(0, limit);
 }
 
@@ -103,7 +117,11 @@ async function getGenreMovies(genreName, limit) {
       },
     }
   );
+
   const data = await res.json();
+
+  if (!data.results) return [];
+
   return data.results.slice(0, limit);
 }
 
