@@ -1,7 +1,6 @@
 // routes/ai.js
 import express from "express";
 import dotenv from "dotenv";
-import fetch from "node-fetch"; // required if Node < 18
 dotenv.config();
 
 const router = express.Router();
