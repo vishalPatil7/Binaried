@@ -1,6 +1,5 @@
 import express from "express";
 import dotenv from "dotenv";
-import fetch from "node-fetch";
 dotenv.config();
 
 const router = express.Router();
@@ -25,7 +24,7 @@ async function interpretQuery(prompt) {
           role: "system",
           content:
             "You are a movie query interpreter. Convert user text into JSON ONLY:\n" +
-            "{ \"type\": \"similar | genre | top_rated\", \"movie\": string|null, \"genre\": string|null, \"limit\": number }",
+            '{ "type": "similar | genre | top_rated", "movie": string|null, "genre": string|null, "limit": number }',
         },
         { role: "user", content: prompt },
       ],
