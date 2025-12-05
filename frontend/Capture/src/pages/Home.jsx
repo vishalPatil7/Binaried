@@ -21,19 +21,19 @@ export default function Home() {
 
   // Refs
   const trendingRef = useRef(null);
-  const scifiRef = useRef(null);
-  const comedyRef = useRef(null);
-  const thrillerRef = useRef(null);
+  const popularRef = useRef(null);
+  const topratedRef = useRef(null);
+  const upcomingRef = useRef(null);
 
   // Scrolls
   const scrollToTrending = () =>
     trendingRef.current?.scrollIntoView({ behavior: "smooth" });
-  const scrollToSciFi = () =>
-    scifiRef.current?.scrollIntoView({ behavior: "smooth" });
-  const scrollToComedy = () =>
-    comedyRef.current?.scrollIntoView({ behavior: "smooth" });
-  const scrollToThriller = () =>
-    thrillerRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToPopular = () =>
+    popularRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToToprated = () =>
+    topratedRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToUpcoming = () =>
+    upcomingRef.current?.scrollIntoView({ behavior: "smooth" });
 
   // Fetch all in parallel
   useEffect(() => {
@@ -55,7 +55,6 @@ export default function Home() {
         setTopRated(r3.results);
         setUpcoming(r4.results);
 
-        // Turn off loading states
         setLoadingTrending(false);
         setLoadingPopular(false);
         setLoadingTopRated(false);
@@ -80,9 +79,9 @@ export default function Home() {
 
     const sections = [
       trendingRef.current,
-      scifiRef.current,
-      comedyRef.current,
-      thrillerRef.current,
+      popularRef.current,
+      topratedRef.current,
+      upcomingRef.current,
     ];
 
     sections.forEach((sec) => sec && observer.observe(sec));
@@ -95,9 +94,9 @@ export default function Home() {
       <Navbar
         activeSection={activeSection}
         scrollToTrending={scrollToTrending}
-        scrollToSciFi={scrollToSciFi}
-        scrollToComedy={scrollToComedy}
-        scrollToThriller={scrollToThriller}
+        scrollToPopular={scrollToPopular}
+        scrollToToprated={scrollToToprated}
+        scrollToUpcoming={scrollToUpcoming}
       />
 
       <div
@@ -112,7 +111,11 @@ export default function Home() {
         />
       </div>
 
-      <div id="popular" ref={scifiRef} className="scroll-mt-12 md:scroll-mt-24">
+      <div
+        id="popular"
+        ref={popularRef}
+        className="scroll-mt-12 md:scroll-mt-24"
+      >
         <MovieCarousel
           section="Popular"
           movies={popular}
@@ -122,7 +125,7 @@ export default function Home() {
 
       <div
         id="top_rated"
-        ref={comedyRef}
+        ref={topratedRef}
         className="scroll-mt-12 md:scroll-mt-24"
       >
         <MovieCarousel
@@ -134,7 +137,7 @@ export default function Home() {
 
       <div
         id="upcoming"
-        ref={thrillerRef}
+        ref={upcomingRef}
         className="scroll-mt-12 md:scroll-mt-24"
       >
         <MovieCarousel

@@ -1,11 +1,11 @@
 import "./App.css";
-import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
+import { Route, Routes, Navigate } from "react-router-dom";
 
 function App() {
   return (
     <>
-      <Home/>
+      <Home />
     </>
   );
 }

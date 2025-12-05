@@ -1,59 +1,38 @@
-// routes/ai.js
 import express from "express";
 import dotenv from "dotenv";
+import fetch from "node-fetch";
 dotenv.config();
 
 const router = express.Router();
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
-/* ----------------------
-   Utility: safeFetch (TMDB)
-   Logs responses for debugging
-   ---------------------- */
 async function safeFetch(url) {
-  console.log("TMDB FETCH ->", url);
   const res = await fetch(url, {
     headers: {
       accept: "application/json",
       Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
     },
-    // optional: set timeout handling in production
   });
-
-  const data = await res.json();
-  console.log("TMDB RESULT:", data && typeof data === "object" ? JSON.stringify(data).slice(0, 1000) : data);
-  return data;
+  return await res.json();
 }
 
-/* ----------------------
-   1) Interpret Query via OpenAI
-   - Returns parsed JSON or null
-   ---------------------- */
 async function interpretQuery(prompt) {
-  console.log("INTERPRET: prompt=", prompt);
-
-  // System prompt instructs the model to return strict JSON
   const systemPrompt = `
-You are a movie query interpreter. Convert user input into JSON ONLY.
-Accept typos, vague phrasing, moods, and themes. Return one JSON object.
-
-VALID types: similar, genre, top_rated, trending, actor, director, vibe, keyword, year_range, keyword
-
-Output schema:
+You convert user movie requests to JSON ONLY.
+Support: similar, genre, top_rated, trending, actor, director, vibe, keyword, year_range.
+Output:
 {
-  "type": "similar | genre | top_rated | trending | actor | director | vibe | keyword | year_range",
-  "movie": string | null,
-  "genre": string | null,
-  "actor": string | null,
-  "director": string | null,
-  "vibe": string | null,
-  "keyword": string | null,
-  "years": { "from": number|null, "to": number|null },
-  "limit": number
+ "type": "...",
+ "movie": string|null,
+ "genre": string|null,
+ "actor": string|null,
+ "director": string|null,
+ "vibe": string|null,
+ "keyword": string|null,
+ "years": { "from": number|null, "to": number|null },
+ "limit": number
 }
-
-If you're not sure, return:
-{ "type": "top_rated", "limit": 10 }
+Default if unsure: { "type": "top_rated", "limit": 10 }
 `;
 
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -69,104 +48,77 @@ If you're not sure, return:
         { role: "user", content: prompt },
       ],
       temperature: 0,
-      max_tokens: 400,
     }),
   });
 
-  const aiJson = await resp.json();
-  console.log("RAW AI RESPONSE:", aiJson && aiJson.choices ? (aiJson.choices[0]?.message?.content || "") : aiJson);
-
-  // Try to safely parse returned content
-  const raw = aiJson?.choices?.[0]?.message?.content;
-  if (!raw) {
-    console.log("No AI content returned");
-    return null;
-  }
+  const json = await resp.json();
+  const raw = json?.choices?.[0]?.message?.content?.trim();
+  if (!raw) return null;
 
   try {
-    // Trim and parse JSON only region if model returns code fences or text
-    const jsonText = raw.trim()
-      .replace(/^\s*```json\s*/i, "")
+    const cleaned = raw
+      .replace(/^\s*```json/i, "")
       .replace(/```$/, "")
       .trim();
-    const parsed = JSON.parse(jsonText);
-    // Ensure at least a type or fallback
-    if (!parsed.type) {
-      parsed.type = "top_rated";
-      parsed.limit = parsed.limit || 10;
-    }
+
+    const parsed = JSON.parse(cleaned);
+    if (!parsed.type) parsed.type = "top_rated";
+    if (!parsed.limit) parsed.limit = 10;
     return parsed;
-  } catch (err) {
-    console.log("AI parse error:", err, "raw:", raw);
+  } catch {
     return null;
   }
 }
 
-/* ----------------------
-   2) Vibe/Genre fuzzy mapping
-   ---------------------- */
-function mapVibeToGenre(vibeOrGenre) {
-  if (!vibeOrGenre) return null;
-  const v = String(vibeOrGenre).toLowerCase();
+function mapVibeToGenre(v) {
+  if (!v) return null;
+  v = v.toLowerCase();
 
-  if (v.includes("fun") || v.includes("laugh") || v.includes("feel good") || v.includes("light"))
+  if (v.includes("fun") || v.includes("laugh") || v.includes("feel"))
     return "comedy";
-
-  if (v.includes("scifi") || v.includes("sci-fi") || v.includes("space") || v.includes("spacey"))
-    return "scifi";
-
-  if (v.includes("thrill") || v.includes("suspense") || v.includes("dark") || v.includes("crime"))
+  if (v.includes("scifi") || v.includes("space")) return "scifi";
+  if (v.includes("thrill") || v.includes("dark") || v.includes("crime"))
     return "thriller";
-
-  if (v.includes("horror") || v.includes("scary") || v.includes("spooky"))
-    return "horror";
-
-  if (v.includes("romance") || v.includes("love") || v.includes("emotional") || v.includes("romantic"))
+  if (v.includes("scary") || v.includes("horror")) return "horror";
+  if (v.includes("rom") || v.includes("love") || v.includes("emot"))
     return "romance";
-
-  if (v.includes("children") || v.includes("kids") || v.includes("family") || v.includes("animation"))
+  if (v.includes("kids") || v.includes("family") || v.includes("animation"))
     return "animation";
-
-  if (v.includes("classic") || v.includes("old") || v.includes("classic cinema"))
-    return "classic"; // fallback mapping may ignore this
 
   return null;
 }
 
-/* ----------------------
-   3) TMDB: Search & helper methods
-   ---------------------- */
-async function searchMovie(title) {
-  if (!title) return null;
-  const data = await safeFetch(`${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}`);
-  if (!data || !Array.isArray(data.results) || data.results.length === 0) return null;
-  return data.results[0];
+async function searchMovie(t) {
+  const d = await safeFetch(
+    `${TMDB_BASE}/search/movie?query=${encodeURIComponent(t)}`
+  );
+  return d?.results?.[0] || null;
 }
 
-async function searchPerson(name) {
-  if (!name) return null;
-  const data = await safeFetch(`${TMDB_BASE}/search/person?query=${encodeURIComponent(name)}`);
-  return data?.results?.[0] || null;
+async function searchPerson(t) {
+  const d = await safeFetch(
+    `${TMDB_BASE}/search/person?query=${encodeURIComponent(t)}`
+  );
+  return d?.results?.[0] || null;
 }
 
-async function getSimilarMovies(movieId, limit = 10) {
-  if (!movieId) return [];
-  const data = await safeFetch(`${TMDB_BASE}/movie/${movieId}/similar`);
-  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
+async function getSimilarMovies(id, limit) {
+  const d = await safeFetch(`${TMDB_BASE}/movie/${id}/similar`);
+  return d?.results?.slice(0, limit) || [];
 }
 
-async function getTopRated(limit = 10) {
-  const data = await safeFetch(`${TMDB_BASE}/movie/top_rated`);
-  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
+async function getTopRated(limit) {
+  const d = await safeFetch(`${TMDB_BASE}/movie/top_rated`);
+  return d?.results?.slice(0, limit) || [];
 }
 
-async function getTrending(limit = 10) {
-  const data = await safeFetch(`${TMDB_BASE}/trending/movie/week`);
-  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
+async function getTrending(limit) {
+  const d = await safeFetch(`${TMDB_BASE}/trending/movie/week`);
+  return d?.results?.slice(0, limit) || [];
 }
 
-async function getGenreMovies(genreName, limit = 10) {
-  const genreMap = {
+async function getGenreMovies(g, limit) {
+  const map = {
     comedy: 35,
     action: 28,
     thriller: 53,
@@ -177,151 +129,89 @@ async function getGenreMovies(genreName, limit = 10) {
     scifi: 878,
   };
 
-  const normalized = (genreName || "").toLowerCase();
-  let mapped = genreMap[normalized] || genreMap[mapVibeToGenre(normalized)];
+  const normalized = g?.toLowerCase();
+  let id = map[normalized] || map[mapVibeToGenre(normalized)];
 
-  // fallback fuzzy checks
-  if (!mapped) {
-    if (normalized.includes("comedy") || normalized.includes("fun")) mapped = genreMap["comedy"];
-    if (normalized.includes("sci") || normalized.includes("space")) mapped = genreMap["scifi"];
-    if (normalized.includes("thrill") || normalized.includes("crime") || normalized.includes("dark")) mapped = genreMap["thriller"];
-    if (normalized.includes("rom") || normalized.includes("love") || normalized.includes("emot")) mapped = genreMap["romance"];
+  if (!id) {
+    if (normalized.includes("fun")) id = 35;
+    if (normalized.includes("sci")) id = 878;
+    if (normalized.includes("thrill")) id = 53;
+    if (normalized.includes("rom")) id = 10749;
   }
 
-  if (!mapped) return [];
-
-  const data = await safeFetch(`${TMDB_BASE}/discover/movie?with_genres=${mapped}&sort_by=vote_average.desc`);
-  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
+  if (!id) return [];
+  const d = await safeFetch(
+    `${TMDB_BASE}/discover/movie?with_genres=${id}&sort_by=vote_average.desc`
+  );
+  return d?.results?.slice(0, limit) || [];
 }
 
-async function getMoviesByActor(actorId, limit = 10) {
-  if (!actorId) return [];
-  const data = await safeFetch(`${TMDB_BASE}/person/${actorId}/movie_credits`);
-  // cast array contains roles; sort/pick by popularity
-  return Array.isArray(data.cast) ? data.cast.slice(0, limit) : [];
+async function getMoviesByActor(id, limit) {
+  const d = await safeFetch(`${TMDB_BASE}/person/${id}/movie_credits`);
+  return d?.cast?.slice(0, limit) || [];
 }
 
-/* Keyword helpers */
-async function searchKeyword(keyword) {
-  if (!keyword) return null;
-  const data = await safeFetch(`${TMDB_BASE}/search/keyword?query=${encodeURIComponent(keyword)}`);
-  return data?.results?.[0] || null;
+async function searchKeyword(k) {
+  const d = await safeFetch(
+    `${TMDB_BASE}/search/keyword?query=${encodeURIComponent(k)}`
+  );
+  return d?.results?.[0] || null;
 }
 
-async function getKeywordMovies(keywordId, limit = 10) {
-  if (!keywordId) return [];
-  const data = await safeFetch(`${TMDB_BASE}/discover/movie?with_keywords=${keywordId}&sort_by=popularity.desc`);
-  return Array.isArray(data.results) ? data.results.slice(0, limit) : [];
+async function getKeywordMovies(id, limit) {
+  const d = await safeFetch(
+    `${TMDB_BASE}/discover/movie?with_keywords=${id}&sort_by=popularity.desc`
+  );
+  return d?.results?.slice(0, limit) || [];
 }
 
-/* ----------------------
-   4) Main Route Handler
-   ---------------------- */
 router.post("/ai-movie-query", async (req, res) => {
   const { prompt } = req.body;
-  console.log("API: prompt ->", prompt);
-
-  if (!prompt) return res.status(400).json({ movies: [], error: "No prompt provided" });
 
   try {
     const q = await interpretQuery(prompt);
-    console.log("INTERPRETED:", q);
-
-    if (!q) {
-      // fallback: return top rated
-      const fallback = await getTopRated(10);
-      return res.json({ movies: fallback });
-    }
-
-    const limit = q.limit || 10;
+    const limit = q?.limit || 10;
     let movies = [];
 
-    // 1) SIMILAR
-    if (q.type === "similar") {
+    if (!q) movies = await getTopRated(limit);
+    else if (q.type === "similar") {
       const title = q.movie || q.keyword || q.vibe;
-      if (!title) {
-        movies = await getTopRated(limit);
-      } else {
-        const found = await searchMovie(title);
-        if (!found) movies = await getTopRated(limit); // fallback
-        else movies = await getSimilarMovies(found.id, limit);
+      const m = await searchMovie(title);
+      movies = m
+        ? await getSimilarMovies(m.id, limit)
+        : await getTopRated(limit);
+    } else if (q.type === "genre" || q.type === "vibe") {
+      movies = await getGenreMovies(q.genre || q.vibe, limit);
+    } else if (q.type === "actor") {
+      const person = await searchPerson(q.actor);
+      movies = person ? await getMoviesByActor(person.id, limit) : [];
+    } else if (q.type === "director") {
+      const person = await searchPerson(q.director);
+      if (person) {
+        const d = await safeFetch(
+          `${TMDB_BASE}/person/${person.id}/movie_credits`
+        );
+        movies = (d.crew || [])
+          .filter((c) => (c.job || "").toLowerCase() === "director")
+          .slice(0, limit);
       }
-    }
+    } else if (q.type === "keyword") {
+      const kw = await searchKeyword(q.keyword);
+      movies = kw ? await getKeywordMovies(kw.id, limit) : [];
+    } else if (q.type === "year_range") {
+      const y = q.years || {};
+      const from = y.from || 1900;
+      const to = y.to || new Date().getFullYear();
+      const d = await safeFetch(
+        `${TMDB_BASE}/discover/movie?primary_release_date.gte=${from}-01-01&primary_release_date.lte=${to}-12-31&sort_by=popularity.desc`
+      );
+      movies = d?.results?.slice(0, limit) || [];
+    } else if (q.type === "top_rated") movies = await getTopRated(limit);
+    else if (q.type === "trending") movies = await getTrending(limit);
+    else movies = await getTopRated(limit);
 
-    // 2) GENRE (includes vibes)
-    else if (q.type === "genre" || q.type === "vibe") {
-      const genreName = q.genre || q.vibe;
-      if (!genreName) movies = await getTopRated(limit);
-      else movies = await getGenreMovies(genreName, limit);
-    }
-
-    // 3) ACTOR
-    else if (q.type === "actor") {
-      const actorName = q.actor;
-      if (!actorName) movies = [];
-      else {
-        const person = await searchPerson(actorName);
-        if (!person) movies = [];
-        else movies = await getMoviesByActor(person.id, limit);
-      }
-    }
-
-    // 4) DIRECTOR (use person search then filter by job=Director via credits)
-    else if (q.type === "director") {
-      const dirName = q.director;
-      if (!dirName) movies = [];
-      else {
-        const person = await searchPerson(dirName);
-        if (!person) movies = [];
-        else {
-          // fetch movie_credits and filter crew where job === "Director"
-          const data = await safeFetch(`${TMDB_BASE}/person/${person.id}/movie_credits`);
-          const directed = (data.crew || []).filter((c) => (c.job || "").toLowerCase() === "director");
-          movies = directed.slice(0, limit);
-        }
-      }
-    }
-
-    // 5) KEYWORD (theme-based)
-    else if (q.type === "keyword") {
-      const kw = q.keyword;
-      if (!kw) movies = [];
-      else {
-        const found = await searchKeyword(kw);
-        if (!found) movies = [];
-        else movies = await getKeywordMovies(found.id, limit);
-      }
-    }
-
-    // 6) YEAR RANGE
-    else if (q.type === "year_range") {
-      const years = q.years || {};
-      const from = years.from || 1900;
-      const to = years.to || new Date().getFullYear();
-      const url = `${TMDB_BASE}/discover/movie?primary_release_date.gte=${from}-01-01&primary_release_date.lte=${to}-12-31&sort_by=popularity.desc`;
-      const data = await safeFetch(url);
-      movies = Array.isArray(data.results) ? data.results.slice(0, limit) : [];
-    }
-
-    // 7) TOP RATED
-    else if (q.type === "top_rated") {
-      movies = await getTopRated(limit);
-    }
-
-    // 8) TRENDING
-    else if (q.type === "trending") {
-      movies = await getTrending(limit);
-    }
-
-    // 9) fallback
-    else {
-      movies = await getTopRated(limit);
-    }
-
-    console.log("RESULT COUNT:", movies?.length || 0);
-    return res.json({ movies: movies || [] });
+    return res.json({ movies });
   } catch (err) {
-    console.error("AI route error:", err);
     return res.status(500).json({ movies: [], error: "Server error" });
   }
 });

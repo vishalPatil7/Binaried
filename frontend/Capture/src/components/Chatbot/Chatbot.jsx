@@ -1,97 +1,93 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import chatbotIcon from "../../assets/chatbot-icon.png";
 
 export default function Chatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { id: 0, role: "bot", text: "Hi — ask me anything about movies." },
+    { id: "msg-0", role: "bot", text: "Hi — ask me anything about movies." },
   ]);
   const [input, setInput] = useState("");
+
   const listRef = useRef(null);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
-    }
-  }, [messages, open]);
+  // /* Auto scroll */
+  // useEffect(() => {
+  //   const list = listRef.current;
+  //   if (list) list.scrollTop = list.scrollHeight;
+  // }, [messages, open]);
 
-  const toggleOpen = () => setOpen((v) => !v);
+  const toggleOpen = useCallback(() => {
+    setOpen((v) => !v);
+  }, []);
 
-  const handleSend = async (e) => {
-    e?.preventDefault();
+  const handleSend = useCallback(
+    async (e) => {
+      e?.preventDefault();
 
-    const trimmed = input.trim();
-    if (!trimmed) return;
+      const trimmed = input.trim();
+      if (!trimmed) return;
 
-    // Add user message
-    const userMsg = {
-      id: Date.now() + "-u",
-      role: "user",
-      text: trimmed,
-    };
-    setMessages((m) => [...m, userMsg]);
-    setInput("");
+      const userId = `u-${Date.now()}`;
+      const loadingId = `l-${Date.now()}`;
 
-    // Add loading indicator
-    const loadingMsg = {
-      id: Date.now() + "-l",
-      role: "bot",
-      text: "Thinking...",
-    };
-    setMessages((m) => [...m, loadingMsg]);
+      setMessages((prev) => [
+        ...prev,
+        { id: userId, role: "user", text: trimmed },
+        { id: loadingId, role: "bot", text: "Thinking..." },
+      ]);
 
-    // Send input to your backend AI endpoint
-    try {
-      const response = await fetch(
-        "https://foxmovies-backend.onrender.com/api/ai-movie-query",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: trimmed }),
-        }
-      );
+      setInput("");
 
-      const data = await response.json();
-
-      // Format movie list
-      let reply = "I couldn't find anything.";
-      if (data.movies && data.movies.length > 0) {
-        reply =
-          "Here are some movies:\n" +
-          data.movies
-            .slice(0, 10) // show top 10
-            .map(
-              (m, i) =>
-                `${i + 1}. ${m.title} (${m.release_date?.slice(0, 4) || "N/A"})`
-            )
-            .join("\n");
-      }
-
-      // Replace loading message with real reply
-      setMessages((prev) => {
-        const withoutLoading = prev.filter((x) => x.id !== loadingMsg.id);
-        return [
-          ...withoutLoading,
-          { id: Date.now() + "-b", role: "bot", text: reply },
-        ];
-      });
-    } catch (error) {
-      console.error("AI Error:", error);
-      setMessages((prev) => {
-        const withoutLoading = prev.filter((x) => !String(x.id).endsWith("-l"));
-
-        return [
-          ...withoutLoading,
+      try {
+        const response = await fetch(
+          "https://foxmovies-backend.onrender.com/api/ai-movie-query",
           {
-            id: Date.now() + "-err",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: trimmed }),
+          }
+        );
+
+        const data = await response.json();
+        let reply = "I couldn't find anything.";
+
+        if (data.movies?.length > 0) {
+          reply =
+            "Here are some movies:\n" +
+            data.movies
+              .slice(0, 10)
+              .map(
+                (m, i) =>
+                  `${i + 1}. ${m.title} (${
+                    m.release_date?.slice(0, 4) || "N/A"
+                  })`
+              )
+              .join("\n");
+        }
+
+        // Replace loading bubble with real reply
+        setMessages((prev) => {
+          return [
+            ...prev.filter((m) => m.id !== loadingId),
+            { id: `b-${Date.now()}`, role: "bot", text: reply },
+          ];
+        });
+      } catch (error) {
+        console.error("AI Error:", error);
+
+        // Remove loading + append error bubble
+        setMessages((prev) => [
+          ...prev.filter((m) => !m.id.startsWith("l-")),
+          {
+            id: `err-${Date.now()}`,
             role: "bot",
             text: "Sorry, something went wrong.",
           },
-        ];
-      });
-    }
-  };
+        ]);
+      }
+    },
+    [input]
+  );
 
   return (
     <>
@@ -115,7 +111,7 @@ export default function Chatbot() {
 
           <button
             onClick={toggleOpen}
-            className="text-gray-500 hover:text-gray-700 p-1"
+            className="text-gray-500 hover:text-gray-700 p-1 cursor-pointer"
           >
             ✕
           </button>

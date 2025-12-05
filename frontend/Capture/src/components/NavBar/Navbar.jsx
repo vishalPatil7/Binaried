@@ -1,71 +1,95 @@
+import { memo, useCallback } from "react";
 import logo from "../../assets/logo.png";
-import { FiSearch } from "react-icons/fi";
-import { FaRegUser } from "react-icons/fa";
+import UserMenu from "../UserMenu/UserMenu";
+// import { FiSearch } from "react-icons/fi";
 
-export default function Navbar({
+function Navbar({
   activeSection,
   scrollToTrending,
-  scrollToSciFi,
-  scrollToComedy,
-  scrollToThriller,
+  scrollToPopular,
+  scrollToToprated,
+  scrollToUpcoming,
 }) {
-  const activeClass =
-    "px-4 py-2 rounded-full bg-purple-100 text-purple-700 font-medium cursor-pointer";
-  const inactiveClass = "text-gray-700 hover:text-purple-700 cursor-pointer";
+  const handleTrending = useCallback(
+    () => scrollToTrending?.(),
+    [scrollToTrending]
+  );
+  const handleSciFi = useCallback(() => scrollToPopular?.(), [scrollToPopular]);
+  const handleComedy = useCallback(
+    () => scrollToToprated?.(),
+    [scrollToToprated]
+  );
+  const handleThriller = useCallback(
+    () => scrollToUpcoming?.(),
+    [scrollToUpcoming]
+  );
 
   return (
-    <nav className="w-full md:px-8  bg-white shadow-sm sticky top-0 z-50">
+    <nav className="w-full bg-white shadow-sm sticky top-0 z-50">
       <div className="max-w-8xl mx-auto flex items-center justify-between px-2.5">
-        <div onClick={scrollToTrending} className="cursor-pointer">
-          <img src={logo} alt="logo" className="w-18 md:w-24 object-contain" />
+        {/* Logo */}
+        <div
+          onClick={handleTrending}
+          className="flex items-center gap-6 cursor-pointer"
+        >
+          <img src={logo} alt="logo" className="w-24 object-contain" />
         </div>
 
-        <ul className="hidden md:flex items-center gap-8">
+        {/* Middle Navigation */}
+        <ul className="hidden md:flex items-center gap-6 sticky top-0 z-50">
           <li
-            onClick={scrollToTrending}
-            className={
-              activeSection === "trending" ? activeClass : inactiveClass
-            }
+            onClick={handleTrending}
+            className={`px-4 py-2 rounded-full font-medium cursor-pointer ${
+              activeSection === "trending"
+                ? "bg-purple-100 text-purple-700"
+                : "text-gray-700 hover:text-purple-700"
+            }`}
           >
             Trending
           </li>
 
           <li
-            onClick={scrollToSciFi}
-            className={
-              activeSection === "popular" ? activeClass : inactiveClass
-            }
+            onClick={handleSciFi}
+            className={`cursor-pointer ${
+              activeSection === "popular"
+                ? "text-purple-700 font-medium"
+                : "text-gray-700 hover:text-purple-700"
+            }`}
           >
             Popular
           </li>
 
           <li
-            onClick={scrollToComedy}
-            className={
-              activeSection === "top_rated" ? activeClass : inactiveClass
-            }
+            onClick={handleComedy}
+            className={`cursor-pointer ${
+              activeSection === "top_rated"
+                ? "text-purple-700 font-medium"
+                : "text-gray-700 hover:text-purple-700"
+            }`}
           >
             Top Rated
           </li>
 
           <li
-            onClick={scrollToThriller}
-            className={
-              activeSection === "upcoming" ? activeClass : inactiveClass
-            }
+            onClick={handleThriller}
+            className={`cursor-pointer ${
+              activeSection === "upcoming"
+                ? "text-purple-700 font-medium"
+                : "text-gray-700 hover:text-purple-700"
+            }`}
           >
             Upcoming
           </li>
         </ul>
 
-        {/* Right Icons */}
-        <div className="flex items-center gap-3 pr-4 md:pr-6">
-          <FiSearch className="text-purple-600 text-xl cursor-pointer" />
-          <div className="p-2 md:p-2.5 ml-3 bg-gray-200 rounded-full cursor-pointer">
-            <FaRegUser className="text-gray-600 w-[15px] h-[15px]" />
-          </div>
+        {/* Right Section */}
+        <div className="flex items-center gap-3 pr-3">
+          {/* <FiSearch className="text-purple-600 text-xl cursor-pointer" /> */}
+          <UserMenu />
         </div>
       </div>
     </nav>
   );
 }
+
+export default memo(Navbar);
